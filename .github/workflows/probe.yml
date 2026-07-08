@@ -1,0 +1,22 @@
+name: probe-runners
+on: [workflow_dispatch, push]
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [macos-latest, macos-15, macos-26]
+    runs-on: ${{ matrix.image }}
+    continue-on-error: true
+    steps:
+      - name: What Xcode and simulators are here
+        run: |
+          sw_vers
+          echo "--- Xcodes:"
+          ls /Applications | grep -i xcode || true
+          echo "--- Default xcodebuild:"
+          xcodebuild -version || true
+          echo "--- Runtimes:"
+          xcrun simctl list runtimes || true
+          echo "--- iPhone devices:"
+          xcrun simctl list devices available | grep -i iphone || true

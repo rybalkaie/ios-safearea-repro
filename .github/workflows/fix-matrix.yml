@@ -1,0 +1,68 @@
+name: fix-matrix
+on: [workflow_dispatch]
+jobs:
+  matrix:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - name: Boot iPhone 17 Pro (iOS 26.5)
+        run: |
+          UDID=$(xcrun simctl list devices "iOS 26.5" | grep "iPhone 17 Pro (" | head -1 | grep -oE '[0-9A-F-]{36}')
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID"
+          open -a Simulator || true
+          sleep 10
+
+      - name: Install idb (touch input)
+        run: |
+          brew install idb-companion || brew install facebook/fb/idb-companion
+          brew install python@3.12
+          pipx install fb-idb --python "$(brew --prefix python@3.12)/bin/python3.12"
+
+      - name: Build page variants (local copies, live assets via <base>)
+        run: |
+          mkdir -p site shots
+          curl -s "https://blog.altronix.store/guides/altronix-bravo-220d-vs-jbl-partybox-110" > site/raw.html
+          # база на боевой origin, чтобы относительные ассеты грузились
+          BASE='<base href="https://blog.altronix.store/">'
+          # Вариант 0: контроль — копия как есть (должна воспроизвести баг)
+          sed "s|<head>|<head>${BASE}|" site/raw.html > site/v0-control.html
+          # Вариант 1: bleed-cap — фон шапки (absolute-ребёнок) растянут на 100px ВВЕРХ
+          CSS1='<style>header > div[aria-hidden="true"].absolute{ top:-100px !important; }</style>'
+          sed "s|<head>|<head>${BASE}${CSS1}|" site/raw.html > site/v1-bleedcap.html
+          # Вариант 2: bleed-cap 150px + фон на самой шапке тоже (пояс и подтяжки)
+          CSS2='<style>header > div[aria-hidden="true"].absolute{ top:-150px !important; } header{ background:#080808 !important; }</style>'
+          sed "s|<head>|<head>${BASE}${CSS2}|" site/raw.html > site/v2-bleedcap-plus-bg.html
+          (cd site && nohup python3 -m http.server 8080 > /dev/null 2>&1 &)
+          sleep 2
+          curl -s -o /dev/null -w "local server: %{http_code}\n" http://127.0.0.1:8080/v0-control.html
+
+      - name: Run variants through scroll ritual
+        run: |
+          dismiss_done=""
+          for V in v0-control v1-bleedcap v2-bleedcap-plus-bg; do
+            xcrun simctl openurl "$UDID" "http://127.0.0.1:8080/${V}.html"
+            sleep 12
+            if [ -z "$dismiss_done" ]; then
+              idb ui tap --udid "$UDID" 364 619 || true
+              dismiss_done=1
+              sleep 2
+            fi
+            xcrun simctl io "$UDID" screenshot "shots/${V}-1-rest.png"
+            idb ui swipe --udid "$UDID" 200 650 200 250 --duration 0.15
+            sleep 0.5
+            idb ui swipe --udid "$UDID" 200 650 200 250 --duration 0.15
+            sleep 3
+            xcrun simctl io "$UDID" screenshot "shots/${V}-2-scrolled.png"
+            idb ui swipe --udid "$UDID" 200 400 200 550 --duration 0.15
+            sleep 3
+            xcrun simctl io "$UDID" screenshot "shots/${V}-3-scrollback.png"
+          done
+
+      - name: Upload shots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: matrix-shots
+          path: shots/

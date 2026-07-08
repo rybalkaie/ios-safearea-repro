@@ -24,16 +24,26 @@ jobs:
         run: |
           mkdir -p site shots
           curl -s "https://blog.altronix.store/guides/altronix-bravo-220d-vs-jbl-partybox-110" > site/raw.html
-          # база на боевой origin, чтобы относительные ассеты грузились
-          BASE='<base href="https://blog.altronix.store/">'
-          # Вариант 0: контроль — копия как есть (должна воспроизвести баг)
-          sed "s|<head>|<head>${BASE}|" site/raw.html > site/v0-control.html
-          # Вариант 1: bleed-cap — фон шапки (absolute-ребёнок) растянут на 100px ВВЕРХ
-          CSS1='<style>header > div[aria-hidden="true"].absolute{ top:-100px !important; }</style>'
-          sed "s|<head>|<head>${BASE}${CSS1}|" site/raw.html > site/v1-bleedcap.html
-          # Вариант 2: bleed-cap 150px + фон на самой шапке тоже (пояс и подтяжки)
-          CSS2='<style>header > div[aria-hidden="true"].absolute{ top:-150px !important; } header{ background:#080808 !important; }</style>'
-          sed "s|<head>|<head>${BASE}${CSS2}|" site/raw.html > site/v2-bleedcap-plus-bg.html
+          # Готовим варианты python-ом: вырезаем ВСЕ <script> (иначе Next.js гидратируется
+          # на чужом origin и рушит страницу «Application error»), ставим <base> на боевой
+          # origin для ассетов, инжектим CSS-кандидаты.
+          python3 - <<'PY'
+          import re
+          html = open('site/raw.html').read()
+          html = re.sub(r'<script\b[^>]*>.*?</script>', '', html, flags=re.S)
+          html = re.sub(r'<script\b[^>]*/>', '', html)
+          base = '<base href="https://blog.altronix.store/">'
+          variants = {
+            'v0-control': '',  # контроль — должен воспроизвести баг
+            # bleed-cap: фон шапки (absolute-ребёнок) растянут на 100px ВВЕРХ
+            'v1-bleedcap': '<style>header > div[aria-hidden="true"].absolute{ top:-100px !important; }</style>',
+            # bleed-cap 150px + фон на самой шапке (пояс и подтяжки)
+            'v2-bleedcap-plus-bg': '<style>header > div[aria-hidden="true"].absolute{ top:-150px !important; } header{ background:#080808 !important; }</style>',
+          }
+          for name, css in variants.items():
+              open(f'site/{name}.html', 'w').write(html.replace('<head>', '<head>' + base + css, 1))
+          print('variants written')
+          PY
           ls -la site/
           python3 -m http.server 8080 --directory site > server.log 2>&1 &
           echo "server pid $!"

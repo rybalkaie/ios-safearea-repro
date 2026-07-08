@@ -34,9 +34,17 @@ jobs:
           # Вариант 2: bleed-cap 150px + фон на самой шапке тоже (пояс и подтяжки)
           CSS2='<style>header > div[aria-hidden="true"].absolute{ top:-150px !important; } header{ background:#080808 !important; }</style>'
           sed "s|<head>|<head>${BASE}${CSS2}|" site/raw.html > site/v2-bleedcap-plus-bg.html
-          (cd site && nohup python3 -m http.server 8080 > /dev/null 2>&1 &)
-          sleep 2
-          curl -s -o /dev/null -w "local server: %{http_code}\n" http://127.0.0.1:8080/v0-control.html
+          ls -la site/
+          python3 -m http.server 8080 --directory site > server.log 2>&1 &
+          echo "server pid $!"
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/v0-control.html || true)
+            echo "try $i: $code"
+            [ "$code" = "200" ] && break
+            sleep 2
+          done
+          cat server.log || true
+          [ "$code" = "200" ]
 
       - name: Run variants through scroll ritual
         run: |

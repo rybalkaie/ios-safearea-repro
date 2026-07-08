@@ -22,7 +22,9 @@ jobs:
       - name: Install idb (touch input for simulator)
         run: |
           brew install idb-companion || brew install facebook/fb/idb-companion
-          pipx install fb-idb
+          # fb-idb ломается на python 3.14 (asyncio.get_event_loop) — пиним 3.12
+          brew install python@3.12
+          pipx install fb-idb --python "$(brew --prefix python@3.12)/bin/python3.12"
           idb list-targets | head -5 || true
 
       - name: Blog page — rest / scrolled / settled
@@ -30,6 +32,9 @@ jobs:
           mkdir -p shots
           xcrun simctl openurl "$UDID" "${{ github.event.inputs.url || 'https://blog.altronix.store/guides/altronix-bravo-220d-vs-jbl-partybox-110?v=sim1' }}"
           sleep 15
+          # Первичный тултип Safari «View Bookmarks…» — закрыть крестиком (точки, не px)
+          idb ui tap --udid "$UDID" 364 619 || true
+          sleep 2
           xcrun simctl io "$UDID" screenshot shots/blog-1-rest.png
           xcrun simctl io "$UDID" recordVideo --codec h264 shots/blog-scroll.mp4 & VID=$!
           sleep 1
